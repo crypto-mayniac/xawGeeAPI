@@ -53,7 +53,9 @@ const trackSwap = (data) => {
 
 // POST route for /webhook
 app.post('/webhook', (req, res) => {
-    console.log("DATA START!!!!!");
+    console.log("/////////////////////////");
+    console.log("/////////////////////////");
+    console.log("/////////////////////////");
     const heliusData = req.body;
 
     // Track and log each swap
@@ -71,7 +73,9 @@ app.post('/webhook', (req, res) => {
     });
 
     res.status(200).send('Helius webhook received');
-    console.log("DATA END!!!!");
+    console.log("/////////////////////////");
+    console.log("/////////////////////////");
+    console.log("/////////////////////////");
 });
 
 // POST route for /
