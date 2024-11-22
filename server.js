@@ -185,7 +185,7 @@ app.post('/webhook', async (req, res) => {
             console.log(`Timestamp: ${swap.timestamp}`);
 
             // Emit a notification if SOL Spent is over 0.100 SOL
-            if (swap.solAmount >= 0.010) {
+            if (swap.solAmount >= 0.100) {
                 io.emit('new_buy', {
                     solSpent: solAmountRounded,
                     usdValue,
