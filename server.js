@@ -33,25 +33,20 @@ const trackSwap = (data) => {
     const transactions = data.map((tx) => {
         const userAccount = tx.feePayer;
 
-        // Find the user's SOL balance change
-        const userAccountData = tx.accountData.find(
-            (account) => account.account === userAccount
-        );
-        const solBalanceChange = userAccountData ? userAccountData.nativeBalanceChange : 0;
-
-        // Find token transfers involving the user
+        // Find token transfers involving the user (only buys)
         const tokenTransferIn = tx.tokenTransfers.find(
             (transfer) => transfer.toUserAccount === userAccount
         );
 
-        // Only process buys
-        if (solBalanceChange < 0 && tokenTransferIn) {
+        if (tokenTransferIn) {
             // User bought tokens with SOL
             const type = 'buy';
-            const solAmount = -solBalanceChange / 1e9; // Convert to positive SOL amount spent
             const tokenAmount = tokenTransferIn.tokenAmount;
             const tokenMint = tokenTransferIn.mint;
             const timestamp = new Date(tx.timestamp * 1000);
+
+            // Calculate SOL Spent excluding fees
+            const solAmount = calculateSolSpent(tx, userAccount);
 
             // Find the contract address (program ID) used for the swap
             const contractAddress = getSwapProgramId(tx, userAccount);
@@ -71,6 +66,33 @@ const trackSwap = (data) => {
     });
 
     return transactions.filter(Boolean); // Remove nulls
+};
+
+// Helper function to calculate SOL Spent excluding fees
+const calculateSolSpent = (tx, userAccount) => {
+    // Identify the swap contract address
+    const contractAddress = getSwapProgramId(tx, userAccount);
+
+    // If contract address is not found, return 0
+    if (!contractAddress) return 0;
+
+    // Identify SOL transfers from user to the swap contract
+    const solTransfers = tx.nativeTransfers.filter(
+        (transfer) =>
+            transfer.fromUserAccount === userAccount &&
+            transfer.toUserAccount === contractAddress
+    );
+
+    // Sum up the SOL amounts
+    const solSpentLamports = solTransfers.reduce(
+        (sum, transfer) => sum + transfer.amount,
+        0
+    );
+
+    // Convert lamports to SOL
+    const solSpent = solSpentLamports / 1e9;
+
+    return solSpent;
 };
 
 // Helper function to get the swap program ID (contract address)
