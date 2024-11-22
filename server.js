@@ -41,22 +41,39 @@ const fetchSolPrice = async () => {
 fetchSolPrice();
 setInterval(fetchSolPrice, 60 * 1000);
 
+// Set to keep track of processed transaction signatures
+const processedTransactionIds = new Set();
+
 // Utility function to parse and track swaps
 const trackSwap = (data) => {
     const transactions = data.map((tx) => {
-        const userAccount = tx.feePayer;
+        // Check if the transaction has already been processed
+        if (processedTransactionIds.has(tx.signature)) {
+            return null;
+        }
+        // Mark the transaction as processed
+        processedTransactionIds.add(tx.signature);
 
-        // Find token transfers involving the user (only buys)
+        // Ensure tokenTransfers exist
+        if (!tx.tokenTransfers || tx.tokenTransfers.length === 0) {
+            return null;
+        }
+
+        // Identify token transfers where the user is the recipient
         const tokenTransferIn = tx.tokenTransfers.find(
-            (transfer) => transfer.toUserAccount === userAccount
+            (transfer) => transfer.toUserAccount !== tx.feePayer && transfer.type === 'transfer'
         );
 
         if (tokenTransferIn) {
-            // User bought tokens with SOL
+            const userAccount = tokenTransferIn.toUserAccount;
             const type = 'buy';
-            const tokenAmount = tokenTransferIn.tokenAmount;
+            const tokenAmountRaw = tokenTransferIn.tokenAmount;
             const tokenMint = tokenTransferIn.mint;
-            const timestamp = new Date(tx.timestamp * 1000);
+            const timestamp = new Date(tx.timestamp); // Assuming timestamp is in milliseconds
+
+            // Adjust token amount based on decimals
+            const tokenDecimals = tokenTransferIn.decimals || 0;
+            const tokenAmount = tokenAmountRaw / Math.pow(10, tokenDecimals);
 
             // Calculate SOL Spent excluding fees
             const solAmount = calculateSolSpent(tx, userAccount);
@@ -74,7 +91,7 @@ const trackSwap = (data) => {
             };
         }
 
-        // Return null for non-buy transactions
+        // Return null if no valid token transfer found
         return null;
     });
 
@@ -160,6 +177,9 @@ const getSwapProgramId = (tx, userAccount) => {
 // POST route for /webhook
 app.post('/webhook', async (req, res) => {
     const heliusData = req.body;
+
+    // Log the raw data for debugging
+    console.log('Received webhook data:', JSON.stringify(heliusData, null, 2));
 
     // Track and log each swap
     const swaps = trackSwap(heliusData);
