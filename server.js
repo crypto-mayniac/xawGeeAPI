@@ -41,44 +41,22 @@ const fetchSolPrice = async () => {
 fetchSolPrice();
 setInterval(fetchSolPrice, 60 * 1000);
 
-// Set to keep track of processed transaction signatures
-const processedTransactionIds = new Set();
-
-// Helper function to catch errors in async route handlers
-const asyncHandler = (fn) => (req, res, next) => {
-    Promise.resolve(fn(req, res, next)).catch(next);
-};
-
 // Utility function to parse and track swaps
 const trackSwap = (data) => {
     const transactions = data.map((tx) => {
-        // Check if the transaction has already been processed
-        if (processedTransactionIds.has(tx.signature)) {
-            return null;
-        }
-        // Mark the transaction as processed
-        processedTransactionIds.add(tx.signature);
+        const userAccount = tx.feePayer;
 
-        // Ensure tokenTransfers exist
-        if (!tx.tokenTransfers || tx.tokenTransfers.length === 0) {
-            return null;
-        }
-
-        // Identify token transfers where the user is the recipient
+        // Find token transfers involving the user (only buys)
         const tokenTransferIn = tx.tokenTransfers.find(
-            (transfer) => transfer.toUserAccount !== tx.feePayer && transfer.type === 'transfer'
+            (transfer) => transfer.toUserAccount === userAccount
         );
 
         if (tokenTransferIn) {
-            const userAccount = tokenTransferIn.toUserAccount;
+            // User bought tokens with SOL
             const type = 'buy';
-            const tokenAmountRaw = tokenTransferIn.tokenAmount;
+            const tokenAmount = tokenTransferIn.tokenAmount;
             const tokenMint = tokenTransferIn.mint;
-            const timestamp = new Date(tx.timestamp); // Assuming timestamp is in milliseconds
-
-            // Adjust token amount based on decimals
-            const tokenDecimals = tokenTransferIn.decimals || 0;
-            const tokenAmount = tokenAmountRaw / Math.pow(10, tokenDecimals);
+            const timestamp = new Date(tx.timestamp * 1000);
 
             // Calculate SOL Spent excluding fees
             const solAmount = calculateSolSpent(tx, userAccount);
@@ -96,7 +74,7 @@ const trackSwap = (data) => {
             };
         }
 
-        // Return null if no valid token transfer found
+        // Return null for non-buy transactions
         return null;
     });
 
@@ -180,11 +158,8 @@ const getSwapProgramId = (tx, userAccount) => {
 };
 
 // POST route for /webhook
-app.post('/webhook', asyncHandler(async (req, res) => {
+app.post('/webhook', async (req, res) => {
     const heliusData = req.body;
-
-    // Log the raw data for debugging
-    console.log('Received webhook data:', JSON.stringify(heliusData, null, 2));
 
     // Track and log each swap
     const swaps = trackSwap(heliusData);
@@ -225,12 +200,6 @@ app.post('/webhook', asyncHandler(async (req, res) => {
     }
 
     res.status(200).send('Helius webhook received');
-}));
-
-// Error handling middleware
-app.use((err, req, res, next) => {
-    console.error('Unhandled error:', err);
-    res.status(500).send('Internal Server Error');
 });
 
 // Socket.IO connection handler
@@ -254,13 +223,7 @@ app.get('/', (req, res) => {
         .send('Server is running and ready to accept POST requests.');
 });
 
-console.log('About to start the server...');
+// Start the server
 server.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
-});
-
-// Handle unhandled promise rejections
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-    // Application specific logging, throwing an error, or other logic here
 });
