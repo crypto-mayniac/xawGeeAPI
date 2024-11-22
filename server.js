@@ -1,11 +1,32 @@
 require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
+const axios = require('axios'); // For fetching SOL price
 
 const app = express();
 app.use(bodyParser.json());
 
 const PORT = process.env.PORT || 8080;
+
+// Global variable to store SOL price in USD
+let solPriceUSD = 0;
+
+// Function to fetch the current SOL price in USD
+const fetchSolPrice = async () => {
+    try {
+        const response = await axios.get(
+            'https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd'
+        );
+        solPriceUSD = response.data.solana.usd;
+        console.log(`Updated SOL price: $${solPriceUSD} USD`);
+    } catch (error) {
+        console.error('Error fetching SOL price:', error);
+    }
+};
+
+// Fetch SOL price every minute
+fetchSolPrice();
+setInterval(fetchSolPrice, 60 * 1000);
 
 // Utility function to parse and track swaps
 const trackSwap = (data) => {
@@ -22,45 +43,31 @@ const trackSwap = (data) => {
         const tokenTransferIn = tx.tokenTransfers.find(
             (transfer) => transfer.toUserAccount === userAccount
         );
-        const tokenTransferOut = tx.tokenTransfers.find(
-            (transfer) => transfer.fromUserAccount === userAccount
-        );
 
-        // Initialize variables for the swap
-        let type, solAmount, tokenAmount, tokenMint, timestamp, contractAddress;
-
+        // Only process buys
         if (solBalanceChange < 0 && tokenTransferIn) {
             // User bought tokens with SOL
-            type = 'buy';
-            solAmount = solBalanceChange / 1e9; // Negative value indicates spending SOL
-            tokenAmount = tokenTransferIn.tokenAmount;
-            tokenMint = tokenTransferIn.mint;
-            timestamp = new Date(tx.timestamp * 1000);
+            const type = 'buy';
+            const solAmount = -solBalanceChange / 1e9; // Convert to positive SOL amount spent
+            const tokenAmount = tokenTransferIn.tokenAmount;
+            const tokenMint = tokenTransferIn.mint;
+            const timestamp = new Date(tx.timestamp * 1000);
 
             // Find the contract address (program ID) used for the swap
-            contractAddress = getSwapProgramId(tx, userAccount);
-        } else if (solBalanceChange > 0 && tokenTransferOut) {
-            // User sold tokens for SOL
-            type = 'sell';
-            solAmount = solBalanceChange / 1e9; // Positive value indicates receiving SOL
-            tokenAmount = tokenTransferOut.tokenAmount;
-            tokenMint = tokenTransferOut.mint;
-            timestamp = new Date(tx.timestamp * 1000);
+            const contractAddress = getSwapProgramId(tx, userAccount);
 
-            // Find the contract address (program ID) used for the swap
-            contractAddress = getSwapProgramId(tx, userAccount);
-        } else {
-            return null;
+            return {
+                type,
+                solAmount,
+                tokenAmount,
+                tokenMint,
+                timestamp,
+                contractAddress,
+            };
         }
 
-        return {
-            type,
-            solAmount,
-            tokenAmount,
-            tokenMint,
-            timestamp,
-            contractAddress,
-        };
+        // Return null for non-buy transactions
+        return null;
     });
 
     return transactions.filter(Boolean); // Remove nulls
@@ -78,36 +85,46 @@ const getSwapProgramId = (tx, userAccount) => {
     ];
 
     // Find the instruction where the user is involved and that is not an excluded program
-    const swapInstruction = tx.instructions.find((instr) =>
-        instr.accounts.includes(userAccount) &&
-        !excludedPrograms.includes(instr.programId)
+    const swapInstruction = tx.instructions.find(
+        (instr) =>
+            instr.accounts.includes(userAccount) &&
+            !excludedPrograms.includes(instr.programId)
     );
 
     return swapInstruction ? swapInstruction.programId : null;
 };
 
 // POST route for /webhook
-app.post('/webhook', (req, res) => {
-    console.log("DATA START!!!!!");
+app.post('/webhook', async (req, res) => {
     const heliusData = req.body;
 
     // Track and log each swap
     const swaps = trackSwap(heliusData);
-    swaps.forEach((swap) => {
-        console.log(`New ${swap.type.toUpperCase()} Detected:`);
-        if (swap.type === 'buy') {
-            console.log(`SOL Spent: ${-swap.solAmount} SOL`); // Negative to show positive amount spent
-            console.log(`Token Bought: ${swap.tokenAmount} (${swap.tokenMint})`);
-        } else if (swap.type === 'sell') {
-            console.log(`SOL Received: ${swap.solAmount} SOL`);
-            console.log(`Token Sold: ${swap.tokenAmount} (${swap.tokenMint})`);
-        }
-        console.log(`Contract Address: ${swap.contractAddress}`);
-        console.log(`Timestamp: ${swap.timestamp}`);
-    });
+
+    if (swaps.length > 0) {
+        console.log('DATA START!!!!!');
+        swaps.forEach((swap) => {
+            console.log(`New ${swap.type.toUpperCase()} Detected:`);
+
+            // Round up SOL amount to 3 decimal places
+            const solAmountRounded = Math.ceil(swap.solAmount * 1000) / 1000;
+
+            // Calculate USD equivalent
+            const usdValue = (solAmountRounded * solPriceUSD).toFixed(2);
+
+            console.log(
+                `SOL Spent: ${solAmountRounded} SOL (~$${usdValue} USD)`
+            );
+            console.log(
+                `Token Bought: ${swap.tokenAmount} (${swap.tokenMint})`
+            );
+            console.log(`Contract Address: ${swap.contractAddress}`);
+            console.log(`Timestamp: ${swap.timestamp}`);
+        });
+        console.log('DATA END!!!!');
+    }
 
     res.status(200).send('Helius webhook received');
-    console.log("DATA END!!!!");
 });
 
 // POST route for /
@@ -118,7 +135,9 @@ app.post('/', (req, res) => {
 
 // GET route for /
 app.get('/', (req, res) => {
-    res.status(200).send('Server is running and ready to accept POST requests.');
+    res
+        .status(200)
+        .send('Server is running and ready to accept POST requests.');
 });
 
 // Start the server
