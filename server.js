@@ -2,11 +2,24 @@ require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
 const axios = require('axios'); // For fetching SOL price
+const http = require('http');   // Required for setting up the server with Socket.IO
+const { Server } = require('socket.io');
 
 const app = express();
 app.use(bodyParser.json());
 
 const PORT = process.env.PORT || 8080;
+
+// Create HTTP server
+const server = http.createServer(app);
+
+// Initialize Socket.IO server
+const io = new Server(server, {
+    cors: {
+        origin: '*',  // Adjust this to your website's domain in production
+        methods: ['GET', 'POST']
+    }
+});
 
 // Global variable to store SOL price in USD
 let solPriceUSD = 0;
@@ -170,11 +183,31 @@ app.post('/webhook', async (req, res) => {
             );
             console.log(`Contract Address: ${swap.contractAddress}`);
             console.log(`Timestamp: ${swap.timestamp}`);
+
+            // Emit a notification if SOL Spent is over 0.100 SOL
+            if (swap.solAmount >= 0.010) {
+                io.emit('new_buy', {
+                    solSpent: solAmountRounded,
+                    usdValue,
+                    tokenAmount: swap.tokenAmount,
+                    tokenMint: swap.tokenMint,
+                    contractAddress: swap.contractAddress,
+                    timestamp: swap.timestamp,
+                });
+            }
         });
         console.log('DATA END!!!!');
     }
 
     res.status(200).send('Helius webhook received');
+});
+
+// Socket.IO connection handler
+io.on('connection', (socket) => {
+    console.log('A client connected');
+    socket.on('disconnect', () => {
+        console.log('A client disconnected');
+    });
 });
 
 // POST route for /
@@ -191,6 +224,6 @@ app.get('/', (req, res) => {
 });
 
 // Start the server
-app.listen(PORT, () => {
+server.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
 });
