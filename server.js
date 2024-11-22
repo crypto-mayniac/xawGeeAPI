@@ -10,22 +10,39 @@ const PORT = process.env.PORT || 8080;
 // Utility function to parse and track swaps
 const trackSwap = (data) => {
     const transactions = data.map((tx) => {
-        const solOutflow = tx.accountData.find(
-            (account) => account.nativeBalanceChange < 0
+        const userAccount = tx.feePayer;
+
+        // Find the user's SOL balance change
+        const userAccountData = tx.accountData.find(
+            (account) => account.account === userAccount
+        );
+        const solBalanceChange = userAccountData ? userAccountData.nativeBalanceChange : 0;
+
+        // Find token transfers involving the user
+        const tokenTransferIn = tx.tokenTransfers.find(
+            (transfer) => transfer.toUserAccount === userAccount
+        );
+        const tokenTransferOut = tx.tokenTransfers.find(
+            (transfer) => transfer.fromUserAccount === userAccount
         );
 
-        const tokenInflow = tx.tokenTransfers.find(
-            (transfer) => transfer.tokenAmount > 0
-        );
-
-        if (solOutflow && tokenInflow) {
+        if (solBalanceChange < 0 && tokenTransferIn) {
+            // User bought tokens with SOL
             return {
-                solSwapped: solOutflow.nativeBalanceChange / 1e9, // Convert lamports to SOL
-                tokenReceived: {
-                    mint: tokenInflow.mint,
-                    amount: tokenInflow.tokenAmount,
-                },
-                timestamp: new Date(tx.timestamp * 1000), // Convert Unix timestamp to readable date
+                type: 'buy',
+                solAmount: solBalanceChange / 1e9, // Negative value indicates spending SOL
+                tokenAmount: tokenTransferIn.tokenAmount,
+                tokenMint: tokenTransferIn.mint,
+                timestamp: new Date(tx.timestamp * 1000),
+            };
+        } else if (solBalanceChange > 0 && tokenTransferOut) {
+            // User sold tokens for SOL
+            return {
+                type: 'sell',
+                solAmount: solBalanceChange / 1e9, // Positive value indicates receiving SOL
+                tokenAmount: tokenTransferOut.tokenAmount,
+                tokenMint: tokenTransferOut.mint,
+                timestamp: new Date(tx.timestamp * 1000),
             };
         }
         return null;
@@ -42,9 +59,14 @@ app.post('/webhook', (req, res) => {
     // Track and log each swap
     const swaps = trackSwap(heliusData);
     swaps.forEach((swap) => {
-        console.log(`New Swap Detected:`);
-        console.log(`SOL Swapped: ${swap.solSwapped} SOL`);
-        console.log(`Token Received: ${swap.tokenReceived.amount} (${swap.tokenReceived.mint})`);
+        console.log(`New ${swap.type.toUpperCase()} Detected:`);
+        if (swap.type === 'buy') {
+            console.log(`SOL Spent: ${-swap.solAmount} SOL`); // Negative to show positive amount spent
+            console.log(`Token Bought: ${swap.tokenAmount} (${swap.tokenMint})`);
+        } else if (swap.type === 'sell') {
+            console.log(`SOL Received: ${swap.solAmount} SOL`);
+            console.log(`Token Sold: ${swap.tokenAmount} (${swap.tokenMint})`);
+        }
         console.log(`Timestamp: ${swap.timestamp}`);
     });
 
