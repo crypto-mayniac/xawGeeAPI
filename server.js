@@ -1,29 +1,18 @@
 const express = require('express');
 const bodyParser = require('body-parser');
-const cors = require('cors');
 
 const app = express();
 
 // Middleware to parse JSON requests
-app.use(bodyParser.json()); // Parse incoming JSON requests
-app.use(cors()); // Enable CORS for testing
+app.use(bodyParser.json());
 
-// Webhook endpoint
+// POST route for the webhook
 app.post('/webhook', (req, res) => {
-    const data = req.body;
-
-    // Log the data to the console
-    if (data) {
-        console.log('Webhook received:', JSON.stringify(data, null, 2));
-    } else {
-        console.log('No data received in the webhook request.');
-    }
-
-    // Respond with success
-    res.status(200).json({ message: 'Webhook received successfully' });
+    console.log('Webhook received:', req.body); // Log the incoming request body
+    res.status(200).send('Webhook received successfully');
 });
 
-// Default route for testing
+// Default GET route for the root
 app.get('/', (req, res) => {
     res.send('Webhook server is running!');
 });
