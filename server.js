@@ -5,17 +5,52 @@ const bodyParser = require('body-parser');
 const app = express();
 app.use(bodyParser.json());
 
-// Use process.env.PORT for the server or default to 8080
 const PORT = process.env.PORT || 8080;
+
+// Utility function to parse and track swaps
+const trackSwap = (data) => {
+    const transactions = data.map((tx) => {
+        const solOutflow = tx.accountData.find(
+            (account) => account.nativeBalanceChange < 0
+        );
+
+        const tokenInflow = tx.tokenTransfers.find(
+            (transfer) => transfer.tokenAmount > 0
+        );
+
+        if (solOutflow && tokenInflow) {
+            return {
+                solSwapped: solOutflow.nativeBalanceChange / 1e9, // Convert lamports to SOL
+                tokenReceived: {
+                    mint: tokenInflow.mint,
+                    amount: tokenInflow.tokenAmount,
+                },
+                timestamp: new Date(tx.timestamp * 1000), // Convert Unix timestamp to readable date
+            };
+        }
+        return null;
+    });
+
+    return transactions.filter(Boolean); // Remove nulls
+};
 
 // POST route for /webhook
 app.post('/webhook', (req, res) => {
     console.log("DATA START!!!!!");
-    console.log('Helius Data:', JSON.stringify(req.body, null, 2));
-    res.status(200).send('Helius webhook received');
-    console.log('DATA END!!!!');
-});
+    const heliusData = req.body;
 
+    // Track and log each swap
+    const swaps = trackSwap(heliusData);
+    swaps.forEach((swap) => {
+        console.log(`New Swap Detected:`);
+        console.log(`SOL Swapped: ${swap.solSwapped} SOL`);
+        console.log(`Token Received: ${swap.tokenReceived.amount} (${swap.tokenReceived.mint})`);
+        console.log(`Timestamp: ${swap.timestamp}`);
+    });
+
+    res.status(200).send('Helius webhook received');
+    console.log("DATA END!!!!");
+});
 
 // POST route for /
 app.post('/', (req, res) => {
