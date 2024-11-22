@@ -9,9 +9,14 @@ const PORT = process.env.PORT || 8080;
 
 // Utility function to parse and track swaps
 const trackSwap = (data) => {
-    return data.reduce((accumulator, tx) => {
+    const transactions = data.map((tx) => {
         const userAccount = tx.feePayer;
-        const timestamp = new Date(tx.timestamp * 1000);
+
+        // Find the user's SOL balance change
+        const userAccountData = tx.accountData.find(
+            (account) => account.account === userAccount
+        );
+        const solBalanceChange = userAccountData ? userAccountData.nativeBalanceChange : 0;
 
         // Find token transfers involving the user
         const tokenTransferIn = tx.tokenTransfers.find(
@@ -22,69 +27,45 @@ const trackSwap = (data) => {
         );
 
         // Initialize variables for the swap
-        let type, solAmount, tokenAmount, tokenMint, contractAddress;
+        let type, solAmount, tokenAmount, tokenMint, timestamp, contractAddress;
 
-        if (tokenTransferIn) {
+        if (solBalanceChange < 0 && tokenTransferIn) {
             // User bought tokens with SOL
             type = 'buy';
+            solAmount = solBalanceChange / 1e9; // Negative value indicates spending SOL
             tokenAmount = tokenTransferIn.tokenAmount;
             tokenMint = tokenTransferIn.mint;
-
-            // Calculate SOL Spent
-            solAmount = calculateSolSpent(tx.nativeTransfers, userAccount);
+            timestamp = new Date(tx.timestamp * 1000);
 
             // Find the contract address (program ID) used for the swap
             contractAddress = getSwapProgramId(tx, userAccount);
-        } else if (tokenTransferOut) {
+        } else if (solBalanceChange > 0 && tokenTransferOut) {
             // User sold tokens for SOL
             type = 'sell';
+            solAmount = solBalanceChange / 1e9; // Positive value indicates receiving SOL
             tokenAmount = tokenTransferOut.tokenAmount;
             tokenMint = tokenTransferOut.mint;
-
-            // Calculate SOL Received
-            solAmount = calculateSolReceived(tx.nativeTransfers, userAccount);
+            timestamp = new Date(tx.timestamp * 1000);
 
             // Find the contract address (program ID) used for the swap
             contractAddress = getSwapProgramId(tx, userAccount);
         } else {
-            // Not a buy or sell transaction; skip it
-            return accumulator;
+            return null;
         }
 
-        accumulator.push({
+        return {
             type,
             solAmount,
             tokenAmount,
             tokenMint,
             timestamp,
             contractAddress,
-        });
+        };
+    });
 
-        return accumulator;
-    }, []);
+    return transactions.filter(Boolean); // Remove nulls
 };
 
-// Helper function to calculate SOL Spent
-const calculateSolSpent = (nativeTransfers, userAccount) => {
-    const solSpent = nativeTransfers
-        .filter(
-            (transfer) =>
-                transfer.fromUserAccount === userAccount &&
-                transfer.toUserAccount !== 'SystemAccount' // Exclude fee payments
-        )
-        .reduce((sum, transfer) => sum + transfer.amount, 0);
-
-    return solSpent / 1e9; // Convert lamports to SOL
-};
-
-// Helper function to calculate SOL Received
-const calculateSolReceived = (nativeTransfers, userAccount) => {
-    const solReceived = nativeTransfers
-        .filter((transfer) => transfer.toUserAccount === userAccount)
-        .reduce((sum, transfer) => sum + transfer.amount, 0);
-
-    return solReceived / 1e9; // Convert lamports to SOL
-};
 // Helper function to get the swap program ID (contract address)
 const getSwapProgramId = (tx, userAccount) => {
     // Exclude common programs
@@ -107,29 +88,26 @@ const getSwapProgramId = (tx, userAccount) => {
 
 // POST route for /webhook
 app.post('/webhook', (req, res) => {
+    console.log("DATA START!!!!!");
     const heliusData = req.body;
 
     // Track and log each swap
     const swaps = trackSwap(heliusData);
-
-    if (swaps.length > 0) {
-        console.log("DATA START!!!!!");
-        swaps.forEach((swap) => {
-            console.log(`New ${swap.type.toUpperCase()} Detected:`);
-            if (swap.type === 'buy') {
-                console.log(`SOL Spent: ${swap.solAmount} SOL`);
-                console.log(`Token Bought: ${swap.tokenAmount} (${swap.tokenMint})`);
-            } else if (swap.type === 'sell') {
-                console.log(`SOL Received: ${swap.solAmount} SOL`);
-                console.log(`Token Sold: ${swap.tokenAmount} (${swap.tokenMint})`);
-            }
-            console.log(`Contract Address: ${swap.contractAddress}`);
-            console.log(`Timestamp: ${swap.timestamp}`);
-        });
-        console.log("DATA END!!!!");
-    }
+    swaps.forEach((swap) => {
+        console.log(`New ${swap.type.toUpperCase()} Detected:`);
+        if (swap.type === 'buy') {
+            console.log(`SOL Spent: ${-swap.solAmount} SOL`); // Negative to show positive amount spent
+            console.log(`Token Bought: ${swap.tokenAmount} (${swap.tokenMint})`);
+        } else if (swap.type === 'sell') {
+            console.log(`SOL Received: ${swap.solAmount} SOL`);
+            console.log(`Token Sold: ${swap.tokenAmount} (${swap.tokenMint})`);
+        }
+        console.log(`Contract Address: ${swap.contractAddress}`);
+        console.log(`Timestamp: ${swap.timestamp}`);
+    });
 
     res.status(200).send('Helius webhook received');
+    console.log("DATA END!!!!");
 });
 
 // POST route for /
