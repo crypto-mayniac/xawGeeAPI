@@ -10,32 +10,11 @@ const PORT = process.env.PORT || 8080;
 
 // POST route for /webhook
 app.post('/webhook', (req, res) => {
+    // console.log('Helius Data:', JSON.stringify(req.body, null, 2));
+
     const heliusData = req.body;
-
-    if (heliusData.nativeTransfers && heliusData.tokenTransfers) {
-        heliusData.tokenTransfers.forEach((tokenTransfer) => {
-            const { fromUserAccount, toUserAccount, tokenAmount } = tokenTransfer;
-
-            // Find corresponding nativeTransfers for SOL changes
-            heliusData.nativeTransfers.forEach((nativeTransfer) => {
-                const { fromUserAccount: nativeFrom, toUserAccount: nativeTo, amount } = nativeTransfer;
-                const amountInSol = amount / 1_000_000_000; // Convert lamports to SOL
-
-                // Match based on buy/sell conditions
-                if (fromUserAccount === nativeTo) {
-                    // Buy: User sends SOL and receives tokens
-                    console.log(`Buy detected: ${amountInSol} SOL spent to receive ${tokenAmount} tokens.`);
-                } else if (toUserAccount === nativeFrom) {
-                    // Sell: User sends tokens and receives SOL
-                    console.log(`Sell detected: ${tokenAmount} tokens sold to receive ${amountInSol} SOL.`);
-                }
-            });
-        });
-    } else {
-        console.log('No valid transfers found in webhook data.');
-    }
-
-    res.status(200).send('Webhook processed successfully');
+    console.log(heliusData[0].nativeTransfers, ' heliusData.nativeTransfers');
+    res.status(200).send('Helius webhook received');
 });
 
 
