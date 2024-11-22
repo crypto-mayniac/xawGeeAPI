@@ -10,9 +10,22 @@ const PORT = process.env.PORT || 8080;
 
 // POST route for /webhook
 app.post('/webhook', (req, res) => {
-    console.log('Helius Data:', JSON.stringify(req.body, null, 2));
-    res.status(200).send('Helius webhook received');
+    const heliusData = req.body;
+
+    if (heliusData.nativeTransfers && heliusData.nativeTransfers.length > 0) {
+        heliusData.nativeTransfers.forEach((transfer) => {
+            const amountInLamports = transfer.amount; // Get the raw amount in lamports
+            const amountInSol = amountInLamports / 1_000_000_000; // Convert lamports to SOL
+
+            console.log(`Buy detected: ${amountInSol} SOL`);
+        });
+    } else {
+        console.log('No valid transfers found in the webhook data.');
+    }
+
+    res.status(200).send('Webhook processed successfully');
 });
+
 
 
 // POST route for /
