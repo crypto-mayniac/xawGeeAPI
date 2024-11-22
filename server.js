@@ -10,9 +10,10 @@ const PORT = process.env.PORT || 8080;
 
 // POST route for /webhook
 app.post('/webhook', (req, res) => {
-    console.log('Webhook received at /webhook:', req.body);
-    res.status(200).send('Webhook received successfully');
+    console.log('Helius Data:', JSON.stringify(req.body, null, 2));
+    res.status(200).send('Helius webhook received');
 });
+
 
 // POST route for /
 app.post('/', (req, res) => {
