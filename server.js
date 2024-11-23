@@ -41,6 +41,18 @@ const fetchSolPrice = async () => {
 fetchSolPrice();
 setInterval(fetchSolPrice, 60 * 1000);
 
+const validateHeliusHeader = (req, res, next) => {
+    const expectedHeader = process.env.HELIUS_AUTH_HEADER;
+    const receivedHeader = req.headers['authorization']; // Match the header name
+
+    if (receivedHeader !== expectedHeader) {
+        console.error('Unauthorized request. Invalid Authentication Header.');
+        return res.status(401).send('Unauthorized');
+    }
+
+    next(); // Proceed to the actual webhook logic if the header is valid
+};
+
 // Utility function to parse and track swaps
 const trackSwap = (data) => {
     const transactions = data.map((tx) => {
@@ -158,10 +170,10 @@ const getSwapProgramId = (tx, userAccount) => {
 };
 
 // POST route for /webhook
-app.post('/webhook', async (req, res) => {
+app.post('/webhook', validateHeliusHeader, async (req, res) => {
     const heliusData = req.body;
 
-    // Track and log each swap
+    // Process the received webhook data
     const swaps = trackSwap(heliusData);
 
     if (swaps.length > 0) {
@@ -185,7 +197,7 @@ app.post('/webhook', async (req, res) => {
             console.log(`Timestamp: ${swap.timestamp}`);
 
             // Emit a notification if SOL Spent is over 0.100 SOL
-            if (swap.solAmount >= 0.100) {
+            if (swap.solAmount >= 0.1) {
                 io.emit('new_buy', {
                     solSpent: solAmountRounded,
                     usdValue,
@@ -201,6 +213,7 @@ app.post('/webhook', async (req, res) => {
 
     res.status(200).send('Helius webhook received');
 });
+
 
 // Socket.IO connection handler
 io.on('connection', (socket) => {
