@@ -42,6 +42,8 @@ fetchSolPrice();
 setInterval(fetchSolPrice, 60 * 1000);
 
 const validateHeliusHeader = (req, res, next) => {
+    console.log('Expected Header:', process.env.HELIUS_AUTH_HEADER); // Debugging line
+
     const expectedHeader = process.env.HELIUS_AUTH_HEADER;
     const receivedHeader = req.headers['authorization']; // Match the header name
 
