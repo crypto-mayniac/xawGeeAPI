@@ -1,4 +1,4 @@
-require('dotenv').config();
+import dotenv from 'dotenv';
 import express from 'express';
 import bodyParser from 'body-parser';
 import fetch from 'node-fetch';
@@ -6,6 +6,8 @@ import cors from 'cors';
 import axios from 'axios'; // For fetching SOL price
 import http from 'http';   // Required for setting up the server with Socket.IO
 import { Server } from 'socket.io';
+
+dotenv.config();
 
 const app = express();
 
