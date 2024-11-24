@@ -138,6 +138,9 @@ const trackSwap = (data) => {
 };
 
 const findHolders = async () => {
+
+    console.log('api key provided is ', HELIUS_API_KEY);
+    console.log('api url made is ', url);
     const now = Date.now();
     if (cachedHoldersCount && now - lastFetchTime < 10 * 60 * 1000) {
         // Return cached result if less than 10 minutes old
