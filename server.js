@@ -1,12 +1,43 @@
 require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
+const fetch = require('node-fetch');
+const cors = require('cors');
 const axios = require('axios'); // For fetching SOL price
 const http = require('http');   // Required for setting up the server with Socket.IO
 const { Server } = require('socket.io');
 
 const app = express();
+
+const allowedOrigins = ['https://nuggieinu.top', 'http://localhost:3000'];
+
+app.use(cors({
+    origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps, curl requests)
+        if (!origin) return callback(null, true);
+
+        if (allowedOrigins.indexOf(origin) !== -1) {
+            // Origin is allowed
+            return callback(null, true);
+        } else {
+            // Origin is not allowed
+            const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+            return callback(new Error(msg), false);
+        }
+    },
+    methods: ['GET'],
+}));
+
+
 app.use(bodyParser.json());
+
+const HELIUS_API_KEY = process.env.HELIUS_API_KEY;
+
+const url = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
+const mintAddress = process.env.TOKEN_MINT_ADDRESS;
+
+let cachedHoldersCount = null;
+let lastFetchTime = 0;
 
 const PORT = process.env.PORT || 8080;
 
@@ -16,8 +47,17 @@ const server = http.createServer(app);
 // Initialize Socket.IO server
 const io = new Server(server, {
     cors: {
-        origin: '*',  // Adjust this to your website's domain in production
-        methods: ['GET', 'POST']
+        origin: function (origin, callback) {
+            // Allow requests with no origin
+            if (!origin) return callback(null, true);
+
+            if (allowedOrigins.indexOf(origin) !== -1) {
+                return callback(null, true);
+            } else {
+                return callback(new Error('Not allowed by CORS'), false);
+            }
+        },
+        methods: ['GET', 'POST'],
     }
 });
 
@@ -93,6 +133,71 @@ const trackSwap = (data) => {
     });
 
     return transactions.filter(Boolean); // Remove nulls
+};
+
+const findHolders = async () => {
+    const now = Date.now();
+    if (cachedHoldersCount && now - lastFetchTime < 10 * 60 * 1000) {
+        // Return cached result if less than 10 minutes old
+        return cachedHoldersCount;
+    }
+
+    const allOwners = new Set();
+
+    try {
+        const response = await fetch(url, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                jsonrpc: "2.0",
+                id: "helius-test",
+                method: "getProgramAccounts",
+                params: [
+                    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", // Token Program ID
+                    {
+                        filters: [
+                            {
+                                dataSize: 165, // Size of SPL Token account
+                            },
+                            {
+                                memcmp: {
+                                    offset: 0, // Mint address starts at offset 0
+                                    bytes: mintAddress,
+                                },
+                            },
+                        ],
+                        encoding: "jsonParsed",
+                    },
+                ],
+            }),
+        });
+
+        const data = await response.json();
+
+        if (!data.result) {
+            console.error("Failed to fetch accounts:", data.error || "Unknown error");
+            return null;
+        }
+
+        data.result.forEach((account) => {
+            const parsedData = account.account.data.parsed;
+            if (parsedData.info.tokenAmount.uiAmount > 0) {
+                allOwners.add(parsedData.info.owner);
+            }
+        });
+
+        cachedHoldersCount = allOwners.size;
+        lastFetchTime = now;
+
+        console.log(`Total unique holders: ${cachedHoldersCount}`);
+    } catch (error) {
+        console.error("Error fetching token holders:", error);
+        return null;
+    }
+
+    return cachedHoldersCount;
 };
 
 // Helper function to calculate SOL Spent excluding fees
@@ -225,6 +330,15 @@ io.on('connection', (socket) => {
     });
 });
 
+app.get('/api/holders', async (req, res) => {
+    const holdersCount = await findHolders();
+    if (holdersCount !== null) {
+        res.json({ holdersCount });
+    } else {
+        res.status(500).json({ error: 'Failed to fetch holders count' });
+    }
+});
+
 // POST route for /
 app.post('/', (req, res) => {
     console.log('Webhook received at /:', req.body);
@@ -237,6 +351,7 @@ app.get('/', (req, res) => {
         .status(200)
         .send('Server is running and ready to accept POST requests.');
 });
+
 
 // Start the server
 server.listen(PORT, () => {
