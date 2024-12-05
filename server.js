@@ -11,7 +11,7 @@ dotenv.config();
 
 const app = express();
 
-const allowedOrigins = ['https://nuggieinu.top', 'http://localhost:3000'];
+const allowedOrigins = ['https://nuggieinu.top', 'http://localhost:3000', 'https://crypto-mayniac.github.io'];
 
 app.use(cors({
     origin: function (origin, callback) {
